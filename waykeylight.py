@@ -3,9 +3,13 @@
 WayKeyLight - System tray application for controlling Elgato Key Lights on Wayland/Hyprland
 """
 
+import os
 import sys
 import json
 import threading
+
+# Suppress Qt style warnings
+os.environ.pop('QT_STYLE_OVERRIDE', None)
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
@@ -16,8 +20,8 @@ from PyQt6.QtWidgets import (
     QSlider, QLabel, QHBoxLayout, QVBoxLayout, QCheckBox, QFrame,
     QGraphicsDropShadowEffect
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject, QPoint, QRect, QThread, pyqtSlot
-from PyQt6.QtGui import QIcon, QAction, QCursor, QScreen, QPalette, QColor
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject, QPoint, QRect, QThread, pyqtSlot, QEvent
+from PyQt6.QtGui import QIcon, QAction, QCursor, QScreen, QPalette, QColor, QMouseEvent
 
 
 class APIWorker(QThread):
@@ -282,7 +286,12 @@ class LightControlWidget(QWidget):
         self.brightness_slider.setMaximum(100)
         self.brightness_slider.setValue(self.light.brightness)
         self.brightness_slider.setFixedHeight(20)
+        # Enable jump-to-position on click
+        self.brightness_slider.setPageStep(1)
+        self.brightness_slider.setSingleStep(1)
         self.brightness_slider.valueChanged.connect(self.on_brightness_changed)
+        # Install event filter for click-to-position
+        self.brightness_slider.installEventFilter(self)
         brightness_layout.addWidget(self.brightness_slider)
         
         self.brightness_value = QLabel(f"{self.light.brightness}%")
@@ -349,6 +358,32 @@ class LightControlWidget(QWidget):
     def update_name(self, name: str):
         """Update the light name label"""
         self.name_label.setText(name)
+    
+    def eventFilter(self, source, event):
+        """Event filter to handle click-to-position on slider"""
+        if source == self.brightness_slider and event.type() == QEvent.Type.MouseButtonPress:
+            if isinstance(event, QMouseEvent):
+                # Calculate position as percentage
+                click_x = event.position().x()
+                slider_width = self.brightness_slider.width()
+                
+                # Calculate the value based on click position
+                if slider_width > 0:
+                    # Account for slider handle width (roughly 12px)
+                    effective_width = slider_width - 12
+                    adjusted_x = max(0, min(click_x - 6, effective_width))
+                    
+                    # Calculate percentage and map to slider range
+                    percentage = adjusted_x / effective_width
+                    min_val = self.brightness_slider.minimum()
+                    max_val = self.brightness_slider.maximum()
+                    new_value = int(min_val + (max_val - min_val) * percentage)
+                    
+                    # Set the value directly
+                    self.brightness_slider.setValue(new_value)
+                    return True  # Event handled
+                    
+        return super().eventFilter(source, event)
 
 
 class ControlPopup(QWidget):
@@ -382,8 +417,8 @@ class ControlPopup(QWidget):
         self.main_layout.setContentsMargins(12, 10, 12, 10)
         self.main_layout.setSpacing(8)
         
-        # Title
-        title = QLabel("Key Lights")
+        # Title with lightbulb icon
+        title = QLabel("💡 WayKeyLight")
         title.setObjectName("title")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.main_layout.addWidget(title)
@@ -624,9 +659,16 @@ class WayKeyLightTray(QSystemTrayIcon):
         
     def setup_tray_icon(self):
         """Setup system tray icon"""
-        icon = QIcon.fromTheme("preferences-desktop-display")
-        if icon.isNull():
-            icon = self.app.style().standardIcon(self.app.style().StandardPixmap.SP_ComputerIcon)
+        # Try to load custom icon first
+        import os
+        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.svg")
+        if os.path.exists(icon_path):
+            icon = QIcon(icon_path)
+        else:
+            # Fallback to system icons
+            icon = QIcon.fromTheme("preferences-desktop-display")
+            if icon.isNull():
+                icon = self.app.style().standardIcon(self.app.style().StandardPixmap.SP_ComputerIcon)
         
         self.setIcon(icon)
         self.setToolTip("WayKeyLight - Click to control")
