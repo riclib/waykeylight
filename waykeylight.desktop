@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=WayKeyLight
+Comment=Control Elgato Key Lights from system tray
+Exec=/home/riclib/tmp/waykeylight/run.sh
+Icon=preferences-desktop-display
+Terminal=false
+Categories=Utility;
+StartupNotify=false
